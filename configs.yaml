@@ -1,0 +1,8 @@
+embedding:
+  model: nomic-embed-text:v1.5
+llm:
+  model: deepseek-r1:8b
+milvus:
+  collection: books
+  host: localhost
+  port: 19530

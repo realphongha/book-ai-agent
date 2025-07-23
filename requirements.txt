@@ -1,0 +1,9 @@
+langchain==0.3.26
+langchain-ollama==0.3.6
+langchain-milvus==0.2.1
+langchain-community==0.3.27
+pymilvus==2.5.14
+ebooklib==0.19
+pypdf==5.8.0
+flask==3.1.1
+PyYAML==6.0.2

@@ -1,0 +1,30 @@
+<!doctype html>
+<html>
+  <body>
+    <h3>Select Books:</h3>
+    <div id="books-checkboxes"></div>
+    <textarea id="question" rows="4" cols="50" placeholder="Ask your question here..."></textarea><br/>
+    <button onclick="ask()">Ask</button>
+    <pre id="output"></pre>
+
+    <script>
+      async function loadBooks(){
+        const resp = await fetch('/api/books');
+        const books = await resp.json();
+        document.getElementById('books-checkboxes').innerHTML =
+          books.map(b => `<label><input type="checkbox" value="${b}">${b}</label><br/>`).join('');
+      }
+      async function ask(){
+        const qs = document.getElementById('question').value;
+        const selected = Array.from(document.querySelectorAll('#books-checkboxes input:checked')).map(i => i.value);
+        const res = await fetch('/api/ask',{
+          method:'POST', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({question: qs, book_titles: selected})
+        });
+        const js = await res.json();
+        document.getElementById('output').textContent = js.answer + "\n\nSources:\n" + js.sources.join("\n");
+      }
+      loadBooks();
+    </script>
+  </body>
+</html>
