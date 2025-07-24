@@ -1,8 +1,13 @@
+producer: phonghh
 embedding:
   model: nomic-embed-text:v1.5
 llm:
   model: deepseek-r1:8b
+  system_prompt: ./prompts/system_prompt.txt
 milvus:
   collection: books
   host: localhost
   port: 19530
+retrieval:
+  k: 50
+  ef: 64

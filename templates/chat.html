@@ -1,30 +1,256 @@
 <!doctype html>
-<html>
-  <body>
-    <h3>Select Books:</h3>
-    <div id="books-checkboxes"></div>
-    <textarea id="question" rows="4" cols="50" placeholder="Ask your question here..."></textarea><br/>
-    <button onclick="ask()">Ask</button>
-    <pre id="output"></pre>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chat with your Books</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #f4f4f9;
+            color: #333;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+        #chat-container {
+            width: 100%;
+            max-width: 700px;
+            background: #fff;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            display: flex;
+            flex-direction: column;
+            height: 85vh;
+        }
+        #chat-history {
+            flex-grow: 1;
+            padding: 20px;
+            overflow-y: auto;
+            border-bottom: 1px solid #eee;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+        .message {
+            padding: 10px 15px;
+            border-radius: 18px;
+            line-height: 1.5;
+            max-width: 85%;
+            word-wrap: break-word;
+        }
+        .user-message {
+            background-color: #007bff;
+            color: white;
+            align-self: flex-end;
+        }
+        .bot-message {
+            background-color: #e9e9eb;
+            color: #333;
+            align-self: flex-start;
+        }
+        /* START: Added styles for thinking process */
+        .thinking-process {
+            margin-top: 10px;
+            border-top: 1px dashed #ccc;
+            padding-top: 8px;
+        }
+        .thinking-process summary {
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 0.9em;
+            color: #555;
+            outline: none; /* Hide default focus ring */
+        }
+        .thinking-content {
+            margin-top: 8px;
+            padding: 10px;
+            background-color: #f7f7f7;
+            border-radius: 4px;
+            font-size: 0.85em;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        .thinking-content pre {
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            margin: 5px 0 10px 0;
+            font-family: monospace;
+            background: #efefef;
+            padding: 8px;
+            border-radius: 3px;
+        }
+        /* END: Added styles */
+        #controls {
+            padding: 20px;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        #book-select, #lang-select {
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            background-color: white;
+            max-width: 150px;
+        }
+        #question {
+            flex-grow: 1;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            resize: none;
+            height: 38px;
+        }
+        #ask-button {
+            padding: 10px 20px;
+            border: none;
+            background-color: #007bff;
+            color: white;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        #ask-button:disabled {
+            background-color: #a0cfff;
+            cursor: not-allowed;
+        }
+        #ask-button:hover:not(:disabled) {
+            background-color: #0056b3;
+        }
+    </style>
+</head>
+<body>
+    <div id="chat-container">
+        <div id="chat-history"></div>
+        <div id="controls">
+            <select id="book-select">
+                <option value="">All Books</option>
+            </select>
+            <select id="lang-select">
+                <option value="English" selected>English</option>
+                <option value="Vietnamese">Vietnamese</option>
+                <option value="Spanish">Spanish</option>
+                <option value="French">French</option>
+                <option value="Japanese">Japanese</option>
+                <option value="German">German</option>
+            </select>
+            <textarea id="question" rows="1" placeholder="Ask your question..."></textarea>
+            <button id="ask-button" onclick="ask()">Ask</button>
+        </div>
+    </div>
 
     <script>
-      async function loadBooks(){
-        const resp = await fetch('/api/books');
-        const books = await resp.json();
-        document.getElementById('books-checkboxes').innerHTML =
-          books.map(b => `<label><input type="checkbox" value="${b}">${b}</label><br/>`).join('');
-      }
-      async function ask(){
-        const qs = document.getElementById('question').value;
-        const selected = Array.from(document.querySelectorAll('#books-checkboxes input:checked')).map(i => i.value);
-        const res = await fetch('/api/ask',{
-          method:'POST', headers: {'Content-Type':'application/json'},
-          body: JSON.stringify({question: qs, book_titles: selected})
+        let chatHistory = [];
+        const questionInput = document.getElementById('question');
+        const bookSelect = document.getElementById('book-select');
+        const langSelect = document.getElementById('lang-select');
+        const askButton = document.getElementById('ask-button');
+        const chatHistoryDiv = document.getElementById('chat-history');
+
+        async function loadBooks() {
+            const resp = await fetch('/api/books');
+            const books = await resp.json();
+            books.forEach(b => {
+                const option = document.createElement('option');
+                option.value = b;
+                option.textContent = b;
+                bookSelect.appendChild(option);
+            });
+        }
+
+        function appendMessage(text, sender, thinking = []) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${sender}-message`;
+            
+            const textContent = document.createElement('div');
+            textContent.textContent = text;
+            messageDiv.appendChild(textContent);
+
+            if (thinking && thinking.length > 0) {
+                const details = document.createElement('details');
+                details.className = 'thinking-process';
+                
+                const summary = document.createElement('summary');
+                summary.textContent = `Retrieved ${thinking.length} sources...`;
+                details.appendChild(summary);
+
+                const thinkingContent = document.createElement('div');
+                thinkingContent.className = 'thinking-content';
+                thinkingContent.innerHTML = thinking.map(step => 
+                    `<div>
+                        <strong>Source: ${step.book_title} (Page: ${step.page})</strong>
+                        <pre>${step.content}</pre>
+                    </div>`
+                ).join('');
+                details.appendChild(thinkingContent);
+                
+                messageDiv.appendChild(details);
+            }
+
+            chatHistoryDiv.appendChild(messageDiv);
+            chatHistoryDiv.scrollTop = chatHistoryDiv.scrollHeight;
+        }
+
+        async function ask() {
+            const question = questionInput.value.trim();
+            if (!question) return;
+
+            const selectedBook = bookSelect.value;
+            const bookTitles = selectedBook ? [selectedBook] : [];
+            const selectedLang = langSelect.value;
+
+            questionInput.disabled = true;
+            bookSelect.disabled = true;
+            langSelect.disabled = true;
+            askButton.disabled = true;
+            askButton.textContent = '...';
+            
+            appendMessage(question, 'user');
+
+            try {
+                const res = await fetch('/api/ask', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        question: question,
+                        book_titles: bookTitles,
+                        chat_history: chatHistory,
+                        language: selectedLang
+                    })
+                });
+
+                if (!res.ok) throw new Error(`API error: ${res.statusText}`);
+
+                const data = await res.json();
+                chatHistory = data.chat_history;
+                appendMessage(data.answer, 'bot', data.thinking);
+
+            } catch (error) {
+                console.error("Failed to ask:", error);
+                appendMessage("Sorry, an error occurred. Please try again.", 'bot');
+            } finally {
+                questionInput.value = '';
+                questionInput.disabled = false;
+                bookSelect.disabled = false;
+                langSelect.disabled = false;
+                askButton.disabled = false;
+                askButton.textContent = 'Ask';
+                questionInput.focus();
+            }
+        }
+        
+        questionInput.addEventListener('keypress', function (e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                ask();
+            }
         });
-        const js = await res.json();
-        document.getElementById('output').textContent = js.answer + "\n\nSources:\n" + js.sources.join("\n");
-      }
-      loadBooks();
+
+        loadBooks();
     </script>
-  </body>
+</body>
 </html>

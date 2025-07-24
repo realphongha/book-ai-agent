@@ -1,7 +1,8 @@
 import yaml
 from flask import Flask, request, jsonify, render_template
-# Replace RetrievalQA with ConversationalRetrievalChain
 from langchain.chains import ConversationalRetrievalChain
+from langchain.prompts import PromptTemplate
+from langchain_core.messages import HumanMessage, AIMessage
 from langchain_ollama import OllamaLLM
 from langchain_ollama import OllamaEmbeddings
 from langchain_milvus import Milvus
@@ -21,6 +22,26 @@ vs = Milvus(
     collection_name=cfg['milvus']['collection'],
 )
 llm = OllamaLLM(model=cfg['llm']['model'])
+
+# Create a custom prompt template with the system instruction
+system_prompt_file = cfg['llm'].get('system_prompt', '')
+system_prompt = open(system_prompt_file, 'r').read()
+template = f"""{system_prompt}
+
+Use the following pieces of content in the book (context) to answer the question at the end.
+If you don't know the answer, just say that you don't know and don't try to make up an answer.
+
+Context:
+{{context}}
+
+Question: {{question}}
+
+Helpful Answer:"""
+
+QA_PROMPT = PromptTemplate(
+    template=template, input_variables=["context", "question"]
+)
+COMBINE_DOCS_CHAIN_KWARGS = {"prompt": QA_PROMPT}
 
 
 @app.route('/')
@@ -46,35 +67,54 @@ def ask():
     if not question:
         return jsonify({"error": "Missing 'question' in request body"}), 400
 
-    # Get chat history from the request, default to an empty list
     chat_history = data.get("chat_history", [])
     titles = data.get("book_titles", [])
+    language = data.get("language", "English")
 
-    retr_kwargs = {"k": 3}
+    # Convert the chat history from a list of tuples to a list of Messages.
+    formatted_chat_history = []
+    for q, a in chat_history:
+        formatted_chat_history.append(HumanMessage(content=q))
+        formatted_chat_history.append(AIMessage(content=a))
+
+    # Add language instruction to the question
+    question_with_lang = f"{question}\n\n(Please provide the answer in {language})"
+
+    search_kwargs = {
+        "k": cfg['retrieval']['k'],
+        "ef": cfg['retrieval']['ef'],
+    }
     if titles:
         expr = f"book_title in {titles!r}"
-        retr_kwargs["search_kwargs"] = {"expr": expr}
+        search_kwargs["expr"] = expr
 
-    retriever = vs.as_retriever(**retr_kwargs)
+    retriever = vs.as_retriever(search_kwargs=search_kwargs)
 
-    # Create the conversational chain
     qa = ConversationalRetrievalChain.from_llm(
         llm=llm,
         retriever=retriever,
-        return_source_documents=True
+        return_source_documents=True,
+        combine_docs_chain_kwargs=COMBINE_DOCS_CHAIN_KWARGS
     )
 
-    # Invoke the chain with the question and history
-    res = qa.invoke({"question": question, "chat_history": chat_history})
+    res = qa.invoke({"question": question_with_lang, "chat_history": formatted_chat_history})
     answer = res["answer"]
 
-    # Append the new question and answer to the history
+    thinking_steps = []
+    for doc in res["source_documents"]:
+        thinking_steps.append({
+            "book_title": doc.metadata.get("book_title", "Unknown"),
+            "content": doc.page_content,
+            "page": doc.metadata.get("page", "N/A")
+        })
+
     chat_history.append((question, answer))
 
     return jsonify({
         "answer": answer,
         "sources": list({doc.metadata["book_title"] for doc in res["source_documents"]}),
-        "chat_history": chat_history
+        "chat_history": chat_history,
+        "thinking": thinking_steps
     })
 
 

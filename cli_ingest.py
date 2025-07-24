@@ -16,7 +16,7 @@ def ingest(path, cfg):
     if path.endswith('.pdf'):
         docs = PyPDFLoader(path).load()
     elif path.endswith('.txt'):
-        docs = TextLoader(path).load()
+        docs = TextLoader(path, encoding='utf-8').load()
     elif path.endswith('.epub'):
         book = epub.read_epub(path)
         text = ''.join([item.get_body_content().decode() for item in book.get_items() if item.get_type() == epub.EpubHtml])
@@ -30,6 +30,8 @@ def ingest(path, cfg):
     chunks = splitter.split_documents(docs)
     for chunk in chunks:
         chunk.metadata['book_title'] = book_title
+        if 'producer' not in chunk.metadata:
+            chunk.metadata['producer'] = cfg['producer']
 
     # Embed and store in Milvus
     embs = OllamaEmbeddings(model=cfg['embedding']['model'])
